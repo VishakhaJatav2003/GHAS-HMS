@@ -34,6 +34,7 @@ mvn clean compile
 |---|---|
 | Swagger UI | `http://localhost:8080/api/v1/swagger-ui/index.html` |
 | OpenAPI JSON | `http://localhost:8080/api/v1/api-docs` |
+| Actuator health | `http://localhost:8080/api/v1/actuator/health` |
 
 All non-auth endpoints require `Authorization: Bearer <token>`. Get a token via `POST /api/v1/auth/login`.
 
@@ -66,6 +67,16 @@ Cross-cutting concerns live in dedicated packages:
 **Domain relationships**: `Appointment` links `Patient` ↔ `Doctor`. `Prescription` and `MedicalRecord` also reference both. `Billing` is standalone (created per patient visit).
 
 **Appointment conflict detection**: `AppointmentRepository` has two named queries — `findConflictingAppointment` and `findConflictingAppointmentExcluding` — that check for overlapping doctor time slots while excluding `CANCELLED` and `NO_SHOW` statuses. The `Excluding` variant is used during reschedule so the appointment being moved doesn't conflict with itself.
+
+**Prescription aggregate**: `Prescription.items` is `@OneToMany(cascade = ALL, orphanRemoval = true)`. Removing an item from the in-memory list and saving the parent will physically DELETE that row — always manage the collection through the parent entity.
+
+**Soft delete**: `Patient` uses an `active` boolean (`deactivatePatient()` sets it `false`, no SQL DELETE). `Doctor` uses `available` for the same pattern. ⚠️ `UserPrincipal.isEnabled()` always returns `true`, so a deactivated `User.active = false` record can still authenticate — this is a known gap.
+
+**Business key generation**: `generatePatientCode()`, `generateAppointmentNumber()`, and `generateBillNumber()` all use `repository.count() + 1` at the application layer. This is not concurrency-safe; concurrent inserts will surface as DB unique-constraint violations. The `AtomicLong` fields that exist in service impls are unused.
+
+**JWT does not embed roles**: The token payload only stores the `subject` (username). Every authenticated request triggers a `UserRepository` query via `CustomUserDetailsService` to reload roles. There is no `/auth/refresh` endpoint despite `app.jwt.refresh-expiration` being configured.
+
+**`PatientValidator`** (`com.hms.patient.validator`) exists but is never called from `PatientServiceImpl` — it is dead code.
 
 **Schema management**: `ddl-auto: update` — Hibernate manages the schema automatically. No migration tool (Flyway/Liquibase) is configured.
 
@@ -133,16 +144,17 @@ A two-workflow, multi-agent system lives in `.github/agents/` for automated Depe
 .github/
   agents/
     alert-ingestion-orchestrator.md   ← entry point for Workflow 1
-    w1-fetcher.md                     ← runs fetch script, produces Excel
+    w1-fetcher.md                     ← runs fetch_alerts.sh, produces CSV
     w1-sorter.md                      ← groups alerts by service
     w1-jira-manager.md                ← Jira dedup check + ticket creation
     vuln-resolver-orchestrator.md     ← entry point for Workflow 2
     w2-context-builder.md             ← fetches alerts + parses pom.xml
     w2-fixer.md                       ← patches pom.xml (CRITICAL first)
-    w2-validator.md                   ← mvn compile + test + smoke check
-    w2-reporter.md                    ← produces end-to-end report
+    w2-validator.md                   ← dep:tree + compile + test + smoke check
+    w2-reporter.md                    ← produces end-to-end report, posts Jira comment
   scripts/
-    fetch_dependabot_alerts.py        ← GitHub REST API → sorted, color-coded Excel
+    fetch_alerts.sh                   ← active: gh CLI → timestamped CSV (all alert types)
+    fetch_dependabot_alerts.py        ← legacy: Dependabot only → Excel output
 ```
 
 **Invoke via Copilot Chat:**
@@ -152,11 +164,13 @@ A two-workflow, multi-agent system lives in `.github/agents/` for automated Depe
 ```
 
 ### Workflow 1 — Alert Ingestion
-1. `@w1-fetcher` runs `fetch_dependabot_alerts.py` — fetches, sorts, and exports to Excel (requires `GITHUB_TOKEN` in `.env`)
-2. `@w1-sorter` reads the Excel and groups alerts by service for the Jira manager
-3. `@w1-jira-manager` searches Jira by `GHAS` + service label — skips if found, creates one consolidated ticket per service if not; updates Excel with Jira key + status
+1. `@w1-fetcher` runs `fetch_alerts.sh` via Git Bash using the `gh` CLI — no `.env` required; run `gh auth login` once. Fetches Dependabot, Code Scanning, and Secret Scanning alerts; writes a timestamped CSV to the repo root.
+2. `@w1-sorter` reads the CSV and groups alerts by service for the Jira manager
+3. `@w1-jira-manager` searches Jira by `GHAS` + service label — skips if found, creates one consolidated ticket per service if not; updates CSV with Jira key + status
 
-**Excel columns:** Service | Repo | Alert # | Severity | CVE ID | Package | Vulnerable Range | Safe Version | Manifest | Scope | Summary | Alert URL | **Jira Key** | **Jira Status**
+**CSV columns:** `service` | `type` | `ghsa_id` | `cve_id` | `title` | `severity` | `created` | `due` | `url` | `Application` | `nonCompliant` | `ageDays` | **`jira_key`** | **`jira_status`**
+
+> `fetch_dependabot_alerts.py` (also in `.github/scripts/`) is a legacy script that produces Excel output for Dependabot alerts only — do not use it for Workflow 1.
 
 ### Workflow 2 — Vulnerability Resolver
 Fix strategy rules enforced by `@w2-fixer`:
@@ -168,6 +182,20 @@ Fix strategy rules enforced by `@w2-fixer`:
 Validation order in `@w2-validator`: `mvn dependency:tree` → `mvn compile` → `mvn test` → `spring-boot:run` health check. Individual failing fixes are reverted, not the whole file.
 
 `@w2-reporter` produces a full end-to-end report (no PR is raised) covering: alerts scanned, fixes applied, validation results, reverted fixes, and flagged concerns.
+
+### Intentionally Vulnerable Dependencies
+
+This is a GHAS/Dependabot demo project. The following dependencies are declared in `pom.xml` solely to generate Dependabot alerts and are **not used in application code**:
+
+| Dependency | Version | CVEs |
+|---|---|---|
+| `log4j-core` | 2.14.1 | CVE-2021-44228 (Log4Shell), CVE-2021-45046, CVE-2021-45105, CVE-2021-44832 |
+| `commons-collections` | 3.2.1 | CVE-2015-7501, CVE-2015-6420 |
+| `jackson-databind` | 2.13.2 | CVE-2020-36518, CVE-2022-42003, CVE-2022-42004 |
+| `guava` | 29.0-jre | CVE-2020-8908, CVE-2023-2976 |
+| `gson` | 2.8.5 | CVE-2022-25647 |
+
+⚠️ **Do not upgrade these without understanding the GHAS workflow impact** — they exist to drive the multi-agent remediation workflows.
 
 ### Dependabot Schedule
 Configured in `.github/dependabot.yml` — weekly on Mondays at 09:00 IST, maven ecosystem, max 5 open PRs.

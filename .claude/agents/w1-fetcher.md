@@ -28,7 +28,7 @@ If not authenticated → STOP and tell the user to run `gh auth login`.
 
 ### 2. Run the script from the repo root using Git Bash
 ```bash
-"C:/Program Files/Git/bin/bash.exe" "C:/Users/TanishqShrivas/DummyProj/GHAS-dummy-projects/HMS/.github/scripts/fetch_alerts.sh"
+"C:/Program Files/Git/bin/bash.exe" "C:/Users/TanishqShrivas/DummyProj/GHAS-dummy-projects/HMS/.claude/scripts/fetch_alerts.sh"
 ```
 
 The script will automatically:
