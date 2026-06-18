@@ -1,8 +1,7 @@
 ---
-description: Workflow 2 / Sub-Agent 1 — Fetches the latest open Dependabot alerts for a service using GitHub MCP, reads the latest github_alerts_*.csv for enriched compliance context, reads pom.xml, classifies each dependency version type, and audits sibling group consistency.
+description: Workflow 2 / Sub-Agent 1 — Fetches the latest open Dependabot alerts for a service using gh CLI, reads the latest github_alerts_*.csv for enriched compliance context, reads pom.xml, classifies each dependency version type, and audits sibling group consistency.
 tools:
-  - githubRepo
-  - runCommand
+  - powershell
 ---
 
 # W2 Sub-Agent 1 — Context Builder
@@ -11,69 +10,94 @@ You are the context builder sub-agent in Workflow 2.
 Your job is to gather ALL the information needed before any code is touched.
 You produce a complete context map for @w2-fixer.
 
+## ⚠️ Execution Rules — NO SIMULATION
+
+**You MUST run every command and show real output. Never simulate, narrate, or hallucinate results.**
+
+- Do NOT call `list_dependabot_alerts()` or `get_file_contents()` — use the `gh` CLI and `Get-Content` commands below
+- Do NOT invent alert counts, package names, or versions — read them from actual command output
+- Do NOT skip any step — all four steps must produce real output before you build the context map
+- If any command fails, show the exact error and stop — do NOT fabricate a context map
+
+## ⚠️ Tool Execution — Use powershell for ALL Commands
+
+**You have access to a `powershell` tool. Use it to run every command in this document.**
+
+- The `runCommand` tool does NOT exist in this environment — never block, stop, or report it as unavailable
+- Use the `powershell` tool for all PowerShell commands, Python scripts, and `mvn` commands
+- For Git Bash / shell script execution, call `powershell` with: `& "C:\Program Files\Git\bin\bash.exe" -c "<command>"`
+- Never say "I would run..." or "I cannot run because runCommand is unavailable" — invoke `powershell` and show actual output
+- If a command fails, show the exact error from `powershell` output — never fabricate success
+
 ## Input (from orchestrator)
-- `REPO` — e.g. tanishq-sh17/HMS
-- `REPO_ROOT` — absolute path to the local repo root, e.g. `C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS`
-- `JIRA_TICKET_ID` — e.g. SEC-101
+- `REPO` — `tanishq-sh17/HMS`
+- `REPO_ROOT` — `C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS`
+- `JIRA_TICKET_ID` — e.g. `HMS-16`
 
 ---
 
 ## Steps
 
-### 1. Fetch Latest Open Dependabot Alerts
-Use GitHub MCP to fetch open alerts:
-```
-list_dependabot_alerts(repo=<REPO>, state=open, ecosystem=maven)
+### 1. Fetch Open Dependabot Alerts via gh CLI
+
+Run this PowerShell command and show the full output:
+```powershell
+gh api "repos/tanishq-sh17/HMS/dependabot/alerts?state=open&per_page=100" --paginate `
+  --jq '.[] | {number:.number, severity:.security_advisory.severity, package:(.dependency.package.name), ecosystem:(.dependency.package.ecosystem), ghsa_id:.security_advisory.ghsa_id, cve_id:((.security_advisory.identifiers[]? | select(.type=="CVE") | .value) // ""), summary:.security_advisory.summary, safe_version:(.security_advisory.references[0].url // ""), vulnerable_range:.security_vulnerability.vulnerable_version_range, first_patched:.security_vulnerability.first_patched_version.identifier, url:.html_url}'
 ```
 
-Sort by severity: CRITICAL → HIGH → MEDIUM → LOW
-
-Build a fix plan:
+From the output, build a fix plan table:
 ```
-| # | Package | GroupId | ArtifactId | Vulnerable Range | Safe Version | CVE | Severity |
+| # | Package | Vulnerable Range | Safe Version | GHSA | CVE | Severity |
 ```
 
-If no open alerts found → report to orchestrator "No open alerts for <REPO>" and stop.
+Sort by severity: CRITICAL → HIGH → MEDIUM → LOW.
+
+**If the command fails with auth error** → stop and tell the user to run `gh auth login`.
+**If output is empty** → report "No open Dependabot alerts found" and stop.
 
 ---
 
 ### 2. Read CSV for Enriched Compliance Context
 
-Resolve the latest `github_alerts_*.csv` file under `<REPO_ROOT>` and read it for compliance data, Code Scanning, and Secret Scanning alerts.
+Resolve the latest CSV and read it:
+```powershell
+$csv = Get-ChildItem "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\github_alerts_*.csv" | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+Write-Host "CSV: $csv"
+```
 
-```bash
+Then run the Python grouping command:
+```powershell
 python -c "
 import csv, glob, os
 
-REPO_ROOT = r'<REPO_ROOT>'
+REPO_ROOT = r'C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS'
 files = sorted(glob.glob(os.path.join(REPO_ROOT, 'github_alerts_*.csv')), key=os.path.getmtime, reverse=True)
 if not files:
-    print('[WARN] No github_alerts_*.csv found — compliance and non-Dependabot alert data will not be available. Continuing with GitHub MCP data only.')
+    print('[WARN] No github_alerts_*.csv found — skipping CSV enrichment')
     exit(0)
 
 CSV_PATH = files[0]
 print(f'[INFO] Reading CSV: {CSV_PATH}')
 
-SERVICE = '<SERVICE_NAME>'
+SERVICE = 'HMS'
 with open(CSV_PATH, newline='', encoding='utf-8') as f:
     rows = list(csv.DictReader(f))
 
-service_rows = [r for r in rows if r.get('service','').strip().lower() == SERVICE.strip().lower()]
+service_rows = [r for r in rows if r.get('service','').strip().lower() == SERVICE.lower()]
 dep_rows = [r for r in service_rows if r.get('type') == 'dependabot']
 cs_rows  = [r for r in service_rows if r.get('type') == 'code-scanning']
 ss_rows  = [r for r in service_rows if r.get('type') == 'secret-scanning']
 
-print(f'Dependabot rows : {len(dep_rows)} (from CSV)')
+print(f'Dependabot rows : {len(dep_rows)}')
 print(f'Code Scanning   : {len(cs_rows)}')
 print(f'Secret Scanning : {len(ss_rows)}')
 
-# Compliance flags for Dependabot alerts
 overdue = [r for r in dep_rows if r.get('nonCompliant','0') == '1']
 print(f'Overdue (past SLA): {len(overdue)}')
 for r in dep_rows:
     print(f'  [{r[\"severity\"].upper()}] {r[\"cve_id\"]} | age={r[\"ageDays\"]}d | due={r[\"due\"]} | overdue={r[\"nonCompliant\"]}')
 
-# Code Scanning summary
 cs_counts = {}
 for r in cs_rows:
     sev = r.get('severity','unknown').upper()
@@ -82,38 +106,37 @@ print(f'Code Scanning by severity: {cs_counts}')
 for r in cs_rows:
     print(f'  [{r[\"severity\"].upper()}] {r[\"title\"]} | {r[\"url\"]}')
 
-# Secret Scanning summary
 print(f'Secret Scanning alerts: {len(ss_rows)}')
 for r in ss_rows:
     print(f'  {r[\"title\"]} | {r[\"url\"]}')
 "
 ```
 
-Replace `<SERVICE_NAME>` with the actual service name (e.g. `HMS`).
-
-**Graceful failure rule**: If the CSV is not found, log the warning above and continue — the rest of the context builder steps use GitHub MCP data which is always authoritative. Do NOT stop the workflow.
+If the CSV is not found → log `[WARN] No CSV — continuing with gh CLI data only` and proceed.
 
 ---
 
-### 3. Fetch pom.xml
-Use GitHub MCP:
+### 3. Read pom.xml from disk
+
+```powershell
+Get-Content "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\pom.xml" -Raw
 ```
-get_file_contents(repo=<REPO>, path=pom.xml)
-```
+
+Show the full content. Do NOT truncate it. This is what @w2-fixer will edit.
 
 ---
 
 ### 4. Classify Each Vulnerable Dependency
 
-For each alert, find the dependency in pom.xml and classify:
+For each alert from Step 1, find the matching `<dependency>` block in the pom.xml output from Step 3 and classify:
 
 | Type | How to identify | Fix strategy |
 |------|----------------|--------------|
 | **Inline** | `<version>2.14.1</version>` directly in `<dependency>` block | Update `<version>` tag |
-| **Property-backed** | `<version>${some.property}</version>` | Update property in `<properties>` block — covers all usages |
-| **BOM-managed** | No `<version>` tag present | SKIP — Spring Boot BOM manages it |
+| **Property-backed** | `<version>${some.property}</version>` | Update property in `<properties>` block |
+| **BOM-managed** | No `<version>` tag present in `<dependency>` block | SKIP |
 
-**CVE deduplication rule**: If multiple CVEs map to the same package (e.g. jackson-databind has 3 CVEs), collapse them into a single fix plan entry. Use the highest required safe version across all CVEs for that package. Record all CVE IDs in that entry so the reporter can list them.
+**CVE deduplication**: If multiple CVEs map to the same package, collapse into one entry. Use the highest required safe version across all CVEs.
 
 Example collapsed entry:
 ```
@@ -124,7 +147,7 @@ Example collapsed entry:
 
 ### 5. Sibling Consistency Audit
 
-Check these groups — all artifacts in a group MUST share the same version:
+Check these groups in the pom.xml — all artifacts in a group MUST share the same version:
 
 ```
 GROUP jjwt:
@@ -135,7 +158,6 @@ GROUP jjwt:
 GROUP log4j:
   org.apache.logging.log4j:log4j-core
   org.apache.logging.log4j:log4j-api
-  org.apache.logging.log4j:log4j-slf4j-impl (if present)
 
 GROUP jackson:
   com.fasterxml.jackson.core:jackson-databind
@@ -143,9 +165,9 @@ GROUP jackson:
   com.fasterxml.jackson.core:jackson-annotations
 ```
 
-For each group found in pom.xml:
-- Are all sibling versions currently the same? → consistent ✅
-- Are versions different across siblings? → flag as pre-existing mismatch ⚠️
+For each group found in pom.xml, report:
+- Consistent ✅ — all siblings on the same version
+- Pre-existing mismatch ⚠️ — versions differ across siblings
 
 ---
 
@@ -153,31 +175,29 @@ For each group found in pom.xml:
 ```
 CONTEXT MAP
 ─────────────────────────────────────────
-Repo         : <REPO>
+Repo         : tanishq-sh17/HMS
 Jira ticket  : <JIRA_TICKET_ID>
-pom.xml      : <full content>
+pom.xml      : <full content — do not truncate>
 
 Fix Plan (sorted by severity):
-  1. [CRITICAL] log4j-core — inline — 2.14.1 → 2.17.2 — CVE-2021-44228      | age=180d | overdue=1
-  2. [CRITICAL] commons-collections — inline — 3.2.1 → 3.2.2 — CVE-2015-7501 | age=200d | overdue=1
-  3. [HIGH]     jackson-databind — property(jackson.version) — 2.13.2 → 2.14.0 | age=45d | overdue=1
-  4. [MEDIUM]   guava — inline — 29.0-jre → 32.0-jre — CVE-2023-2976           | age=60d | overdue=0
-  5. [LOW]      gson — inline — 2.8.5 → 2.8.9 — CVE-2022-25647                 | age=10d | overdue=0
+  1. [CRITICAL] log4j-core — inline — 2.14.1 → 2.17.2 — CVE-2021-44228      | age=Xd | overdue=1
+  2. [CRITICAL] commons-collections — inline — 3.2.1 → 3.2.2 — CVE-2015-7501 | age=Xd | overdue=1
+  3. [HIGH]     jackson-databind — property(jackson.version) — 2.13.2 → 2.14.2 — CVE-2020-36518, CVE-2022-42003, CVE-2022-42004
+  4. [MEDIUM]   guava — inline — 29.0-jre → 32.0.1-jre — CVE-2023-2976
+  5. [LOW]      gson — inline — 2.8.5 → 2.8.9 — CVE-2022-25647
 
 Skipped (BOM-managed):
-  - spring-core (managed by Spring Boot parent BOM)
+  (none — or list packages)
 
 Sibling group audit:
   jjwt    : consistent ✅ (all on 0.12.3)
-  jackson : pre-existing mismatch ⚠️ (core=2.13.2, databind=2.13.0)
+  log4j   : pre-existing mismatch ⚠️ (details)
+  jackson : pre-existing mismatch ⚠️ (details)
 
-CSV Enrichment (from github_alerts_<timestamp>.csv):
-  CSV available        : yes / no (warn only if no)
+CSV Enrichment:
+  CSV available        : yes / no
   Dependabot overdue   : X alerts past SLA
   Code Scanning alerts : X total (CRITICAL: X | HIGH: X | MEDIUM: X | LOW: X)
     [HIGH] <rule title> | <url>
-    ...
   Secret Scanning alerts: X total
-    <title> | <url>
-    ...
 ```

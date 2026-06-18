@@ -55,6 +55,16 @@ _gh_out=$(mktemp)
 _gh_err=$(mktemp)
 trap 'rm -f "$_gh_out" "$_gh_err"' EXIT
 
+_total_rows=0
+
+_count_rows() {
+  if [ -s "$_gh_out" ]; then
+    wc -l < "$_gh_out" | tr -d ' '
+  else
+    printf '0'
+  fi
+}
+
 for entry in \
   "HMS Hospital-Management-System" \
 ; do
@@ -62,11 +72,13 @@ for entry in \
   svc="${entry%% *}"
   Application="${entry#* }"
 
-  echo "Fetching alerts for service: $svc" >&2
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  echo "Service: $svc" >&2
 
   # =======================
   # Dependabot
   # =======================
+  echo "  [1/3] Fetching Dependabot alerts..." >&2
   if gh api "repos/tanishq-sh17/${svc}/dependabot/alerts?state=open&per_page=100" --paginate \
     --jq '.[] |
       .created_at as $created |
@@ -93,14 +105,21 @@ for entry in \
         age_days: $age
       }' > "$_gh_out" 2>"$_gh_err"; then
 
+    _n=$(_count_rows)
     jq -rc --arg svc "$svc" --arg Application "$Application" \
       '. | [$svc,.type,.ghsa_id,.cve_id,.title,.severity,.created,.due,.url,$Application,.non_compliant,.age_days] | @csv' \
       "$_gh_out" >> "$out_path"
+    echo "  ✓ Dependabot: $_n alert(s) found" >&2
+    _total_rows=$(( _total_rows + _n ))
+  else
+    _err=$(cat "$_gh_err" 2>/dev/null | head -3)
+    echo "  ✗ Dependabot fetch failed: $_err" >&2
   fi
 
   # =======================
   # Code Scanning
   # =======================
+  echo "  [2/3] Fetching Code Scanning alerts..." >&2
   if gh api "repos/tanishq-sh17/${svc}/code-scanning/alerts?state=open&per_page=100" --paginate \
     --jq '.[] |
       .created_at as $created |
@@ -119,14 +138,21 @@ for entry in \
         age_days:$age
       }' > "$_gh_out" 2>"$_gh_err"; then
 
+    _n=$(_count_rows)
     jq -rc --arg svc "$svc" --arg Application "$Application" \
       '. | [$svc,.type,.ghsa_id,.cve_id,.title,.severity,.created,.due,.url,$Application,.non_compliant,.age_days] | @csv' \
       "$_gh_out" >> "$out_path"
+    echo "  ✓ Code Scanning: $_n alert(s) found" >&2
+    _total_rows=$(( _total_rows + _n ))
+  else
+    _err=$(cat "$_gh_err" 2>/dev/null | head -3)
+    echo "  ✗ Code Scanning fetch failed (may not be enabled): $_err" >&2
   fi
 
   # =======================
   # Secret Scanning
   # =======================
+  echo "  [3/3] Fetching Secret Scanning alerts..." >&2
   if gh api "repos/tanishq-sh17/${svc}/secret-scanning/alerts?state=open&per_page=100" --paginate \
     --jq '.[] |
       .created_at as $created |
@@ -145,11 +171,19 @@ for entry in \
         age_days:$age
       }' > "$_gh_out" 2>"$_gh_err"; then
 
+    _n=$(_count_rows)
     jq -rc --arg svc "$svc" --arg Application "$Application" \
       '. | [$svc,.type,.ghsa_id,.cve_id,.title,.severity,.created,.due,.url,$Application,.non_compliant,.age_days] | @csv' \
       "$_gh_out" >> "$out_path"
+    echo "  ✓ Secret Scanning: $_n alert(s) found" >&2
+    _total_rows=$(( _total_rows + _n ))
+  else
+    _err=$(cat "$_gh_err" 2>/dev/null | head -3)
+    echo "  ✗ Secret Scanning fetch failed (may not be enabled): $_err" >&2
   fi
 
 done
 
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+echo "Total alerts written: $_total_rows" >&2
 printf '%s\n' "Wrote CSV to: $out_path"

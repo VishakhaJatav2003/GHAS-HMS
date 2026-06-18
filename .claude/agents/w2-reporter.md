@@ -1,7 +1,7 @@
 ---
 description: Workflow 2 / Sub-Agent 4 — Produces a comprehensive end-to-end report, posts the report as a Jira comment, and transitions the ticket to Done/In Review based on outcome.
 tools:
-  - jira
+  - powershell
 ---
 
 # W2 Sub-Agent 4 — Reporter
@@ -12,26 +12,51 @@ Your jobs in order:
 2. Post the report as a comment on the Jira ticket
 3. Transition the Jira ticket based on outcome
 
+## ⚠️ Execution Rules — NO SIMULATION
+
+**You MUST run every command and show real output. Never simulate, narrate, or hallucinate results.**
+
+- Do NOT say "I would post a comment..." — run the Python command and show real output
+- Do NOT invent Jira comment IDs or transition results — read them from actual command output
+- Do NOT skip the transition step — run it even if the comment step failed
+- Every Jira comment ID and transition status MUST come from actual command output
+
+## ⚠️ Tool Execution — Use powershell for ALL Commands
+
+**You have access to a `powershell` tool. Use it to run every command in this document.**
+
+- The `runCommand` tool does NOT exist in this environment — never block, stop, or report it as unavailable
+- Use the `powershell` tool for all PowerShell commands, Python scripts, and `mvn` commands
+- For Git Bash / shell script execution, call `powershell` with: `& "C:\Program Files\Git\bin\bash.exe" -c "<command>"`
+- Never say "I would run..." or "I cannot run because runCommand is unavailable" — invoke `powershell` and show actual output
+- If a command fails, show the exact error from `powershell` output — never fabricate success
+
+## Fixed Configuration
+
+| Setting | Value |
+|---|---|
+| Script path | `C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\.github\scripts\jira_ticket_manager.py` |
+
 ## Input (collect from previous sub-agents)
 
 | Source | Data |
 |--------|------|
-| @w2-context-builder | Alerts scanned, dependency classifications, sibling group audit, CSV enrichment (Code Scanning / Secret Scanning / compliance) |
-| @w2-fixer | Fixes attempted, fix types used (inline / property-backed), skipped (BOM-managed) |
+| @w2-context-builder | Alerts scanned, dependency classifications, sibling group audit, CSV enrichment |
+| @w2-fixer | Fixes attempted, fix types used, skipped (BOM-managed) |
 | @w2-validator | Validation results per fix, reverted fixes + reasons, final pom.xml state |
 
 ---
 
 ## Step 1 — Compile the Report
 
-Output the following report in full. Populate every section with real data from the sub-agents above.
+Populate every field below with **real data from the sub-agents**. Do not leave any field as a placeholder.
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
 ║          WORKFLOW 2 — END-TO-END REPORT                         ║
 ╠══════════════════════════════════════════════════════════════════╣
-║  Service     : <SERVICE_NAME>                                    ║
-║  Repo        : <REPO>                                            ║
+║  Service     : HMS                                               ║
+║  Repo        : tanishq-sh17/HMS                                  ║
 ║  Jira Ticket : <JIRA_TICKET_ID>                                  ║
 ║  Run date    : <YYYY-MM-DD>                                      ║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -100,8 +125,8 @@ Fixes reverted (individual failures):
   Fixes reverted              : X
   Skipped (BOM-managed)       : X
   Flagged for human review    : X
-  Code Scanning alerts        : X (not auto-fixed — require manual code changes; flagged for human review)
-  Secret Scanning alerts      : X (not auto-fixed — require secret rotation; flagged for human review)
+  Code Scanning alerts        : X (not auto-fixed — require manual code changes)
+  Secret Scanning alerts      : X (not auto-fixed — require secret rotation)
   pom.xml final state         : ✅ compiles and tests pass / ⚠️ partial fixes only
 ────────────────────────────────────────────────────────────────────
 ```
@@ -110,41 +135,73 @@ Fixes reverted (individual failures):
 
 ## Step 2 — Post Report as Jira Comment
 
-Post the full report from Step 1 as a comment on the Jira ticket (`<JIRA_TICKET_ID>`).
+Write the compiled report to a temp file, then call the Python script:
 
-Use `contentFormat: "markdown"` and real newlines (no `\n` escape sequences).
+```powershell
+# Write the report to a temp file
+$reportFile = "$env:TEMP\hms_w2_report.txt"
+@"
+<paste the full report text from Step 1 here>
+"@ | Set-Content $reportFile -Encoding UTF8
 
-If the Jira comment call fails:
-- Log the error and continue to Step 3 — **always attempt the ticket transition even if the comment failed**.
-- Include a note in your final output to the user: `"⚠️ Jira comment post failed: <error>. Transition was still attempted."`
+# Post as Jira comment
+python "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\.github\scripts\jira_ticket_manager.py" `
+  comment --ticket <JIRA_TICKET_ID> --body-file "$reportFile"
+```
+
+**Expected output:**
+```json
+{"comment_id": "XXXXXX", "ticket": "HMS-XX", "status": "posted"}
+```
+
+If the command exits non-zero:
+- Log the error
+- Continue to Step 3 — **always attempt the transition even if the comment failed**
+- Include in final output: `⚠️ Jira comment post failed: <error>. Transition was still attempted.`
 
 ---
 
 ## Step 3 — Transition the Jira Ticket
 
-Determine outcome and transition accordingly:
+Determine the target transition from the validation outcome:
 
-| Outcome | Condition | Jira Transition |
-|---------|-----------|-----------------|
-| ✅ Full fix | All applied fixes passed validation (0 reverted) | → **Done** |
-| ⚠️ Partial fix | At least 1 fix applied but some were reverted | → **In Review** |
-| ❌ No fixes | Zero fixes applied or all reverted | Add comment only — **leave status unchanged** |
+| Outcome | Condition | Target status |
+|---------|-----------|---------------|
+| ✅ Full fix | All applied fixes passed validation (0 reverted) | `Done` |
+| ⚠️ Partial fix | At least 1 fix applied AND at least 1 reverted | `In Review` |
+| ❌ No fixes | Zero fixes applied OR all reverted | comment only — leave status unchanged |
 
-Steps:
-1. Call `get_transitions(ticket_id=<JIRA_TICKET_ID>)` to retrieve available transitions
-2. Match the target status name from the table above (case-insensitive partial match is acceptable, e.g. "Done", "In Review")
-3. Call `transition_issue(ticket_id=<JIRA_TICKET_ID>, transition_id=<ID>)`
+**Step 3a — List available transitions:**
+```powershell
+python "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\.github\scripts\jira_ticket_manager.py" `
+  transitions --ticket <JIRA_TICKET_ID>
+```
 
-If `get_transitions` or `transition_issue` fails:
-- Log the error and do **not** retry.
-- Include a note in your final output: `"⚠️ Jira transition failed: <error>. Manual transition required."`
-- Always report the intended transition (Done / In Review) so a human can apply it manually.
+**Expected output:**
+```json
+[{"id": "31", "name": "Done"}, {"id": "21", "name": "In Progress"}, ...]
+```
+
+**Step 3b — Apply transition (skip if outcome is "No fixes"):**
+```powershell
+python "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\.github\scripts\jira_ticket_manager.py" `
+  transition --ticket <JIRA_TICKET_ID> --name "<Done|In Review>"
+```
+
+**Expected output:**
+```json
+{"ticket": "HMS-XX", "transitioned_to": "Done", "status": "success"}
+```
+
+If the transition command exits non-zero:
+- Log the error
+- Include in final output: `⚠️ Jira transition failed: <error>. Manual transition required to: <Done|In Review>`
 
 ---
 
 ## Rules
-- Report real data only — never fabricate numbers or statuses
-- If a sub-agent produced no output for a section, state "No data — sub-agent did not report this"
+- Report real data only — never fabricate numbers, comment IDs, or statuses
+- Write the report to a temp file before posting — do NOT try to pass it inline
 - Always post the Jira comment even if the transition fails
 - Always attempt the Jira transition even if the comment fails
 - This report is the final artefact of Workflow 2; make it complete enough to hand off to a human reviewer

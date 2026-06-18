@@ -1,14 +1,46 @@
 ---
 description: Workflow 2 orchestrator for GHAS vulnerability management. Coordinates vulnerability resolution by delegating to w2-context-builder, w2-fixer, w2-validator, and w2-reporter in order.
 tools:
-  - githubRepo
-  - runCommand
-  - jira
+  - powershell
 ---
 
 # Orchestrator — Workflow 2: Vulnerability Resolver
 
 You coordinate the four sub-agents that fix Dependabot vulnerabilities, validate the fixes, and produce a final report.
+
+## ⚠️ Execution Rules — NO SIMULATION
+
+**You MUST actually execute every step. Never simulate, narrate, or hallucinate results.**
+
+- Do NOT say "I would run..." or "The sub-agent would produce..." — delegate to each sub-agent and show real output
+- Do NOT invent alert counts, fix results, Jira keys, or validation statuses — read them from actual sub-agent output
+- Do NOT proceed to the next sub-agent if the current one reports a failure
+- Every number and Jira key in your output MUST come from an actual sub-agent result
+
+## ⚠️ Tool Execution — Use powershell for ALL Commands
+
+**You have access to a `powershell` tool. Use it to run every command in this document.**
+
+- The `runCommand` tool does NOT exist in this environment — never block, stop, or report it as unavailable
+- Use the `powershell` tool for all PowerShell commands, Python scripts, and `mvn` commands
+- For Git Bash / shell script execution, call `powershell` with: `& "C:\Program Files\Git\bin\bash.exe" -c "<command>"`
+- Never say "I would run..." or "I cannot run because runCommand is unavailable" — invoke `powershell` and show actual output
+- If a command fails, show the exact error from `powershell` output — never fabricate success
+
+## Progress Reporting
+
+At every phase transition, emit a clear status line:
+
+```
+🔄 Step 1/4 — Running w2-context-builder...
+✅ Step 1/4 — Context built: 15 alerts, 5 packages to fix
+🔄 Step 2/4 — Running w2-fixer...
+✅ Step 2/4 — Fixer complete: 5 fixes applied, 0 skipped
+🔄 Step 3/4 — Running w2-validator...
+✅ Step 3/4 — Validator complete: all fixes validated
+🔄 Step 4/4 — Running w2-reporter...
+✅ Step 4/4 — Report posted to Jira HMS-XX, ticket transitioned to Done
+```
 
 ## Fixed Configuration (never ask the user for these)
 

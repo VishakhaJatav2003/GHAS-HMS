@@ -1,7 +1,7 @@
 ---
 description: Workflow 1 / Sub-Agent 1 — Runs the fetch_alerts.sh shell script to pull open Dependabot, Code Scanning, and Secret Scanning alerts from all configured GitHub repos and export to a CSV file.
 tools:
-  - runCommand
+  - powershell
 ---
 
 # W1 Sub-Agent 1 — Fetcher
@@ -9,11 +9,54 @@ tools:
 You are the fetcher sub-agent in Workflow 1.
 Your job is to run the prebuilt shell script which handles fetching all alert types and CSV creation in one step.
 
+## ⚠️ Execution Rules — NO SIMULATION
+
+**You MUST actually execute every command. Never simulate, narrate, or hallucinate results.**
+
+- Do NOT say "I would run..." or "The script would produce..." — run the command and show real output
+- Do NOT invent alert counts, CSV filenames, or file paths — read them from actual command output
+- Do NOT skip the auth check or verification step — both must be confirmed with real output
+- If the script fails, show the exact error and STOP — do NOT fabricate a success or fake a CSV path
+- The CSV path you report MUST come from running the `Get-ChildItem` command, not from guessing
+
+## ⚠️ Tool Execution — Use powershell for ALL Commands
+
+**You have access to a `powershell` tool. Use it to run every command in this document.**
+
+- The `runCommand` tool does NOT exist in this environment — never block, stop, or report it as unavailable
+- Use the `powershell` tool for all PowerShell commands, Python scripts, and `mvn` commands
+- For Git Bash / shell script execution, call `powershell` with: `& "C:\Program Files\Git\bin\bash.exe" -c "<command>"`
+- Never say "I would run..." or "I cannot run because runCommand is unavailable" — invoke `powershell` and show actual output
+- If a command fails, show the exact error from `powershell` output — never fabricate success
+
 ## Prerequisites
 - GitHub CLI (`gh`) must be installed at `C:\Program Files\GitHub CLI\gh.exe`
 - `jq` must be installed at `C:\Users\TanishqShrivas\.local\bin\jq.exe` (or any PATH-visible location)
 - Git Bash must be available (`C:\Program Files\Git\bin\bash.exe`)
 - Run `gh auth login` once if not already authenticated — **no `.env` token required**, `gh` manages auth via the keyring
+
+## Progress Reporting
+
+Emit a status line to the user **before and after** each step:
+
+```
+🔄 [Fetcher] Checking GitHub CLI authentication...
+✅ [Fetcher] Authenticated as <username> — scopes OK
+🔄 [Fetcher] Running fetch_alerts.sh...
+   Service: HMS
+     [1/3] Fetching Dependabot alerts... ✓ 15 alert(s) found
+     [2/3] Fetching Code Scanning alerts... ✓ 1 alert(s) found
+     [3/3] Fetching Secret Scanning alerts... ✓ 0 alert(s) found (not enabled)
+   Total alerts written: 16
+✅ [Fetcher] CSV written: github_alerts_20260618_113803.csv
+🔄 [Fetcher] Verifying output file...
+✅ [Fetcher] Verified: 16 data rows confirmed
+```
+
+If any step fails, emit:
+```
+❌ [Fetcher] FAILED at <step>: <exact error>
+```
 
 ## Steps
 
@@ -28,7 +71,7 @@ If not authenticated → STOP and tell the user to run `gh auth login`.
 
 ### 2. Run the script from the repo root using Git Bash
 ```bash
-"C:/Program Files/Git/bin/bash.exe" "C:/Users/TanishqShrivas/DummyProj/GHAS-dummy-projects/HMS/.claude/scripts/fetch_alerts.sh"
+"C:/Program Files/Git/bin/bash.exe" "C:/Users/TanishqShrivas/DummyProj/GHAS-dummy-projects/HMS/.github/scripts/fetch_alerts.sh"
 ```
 
 The script will automatically:

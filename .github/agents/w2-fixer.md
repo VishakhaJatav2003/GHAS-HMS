@@ -1,103 +1,148 @@
 ---
 description: Workflow 2 / Sub-Agent 2 — Applies version fixes to pom.xml based on the context map from the Context Builder. Fixes CRITICAL vulnerabilities first, enforces sibling group consistency, and handles inline vs property-backed versions correctly.
 tools:
-  - githubRepo
-  - codeEditor
-  - runCommand
+  - powershell
 ---
 
 # W2 Sub-Agent 2 — Fixer
 
 You are the fixer sub-agent in Workflow 2.
 You receive a context map from @w2-context-builder and apply all version fixes
-to pom.xml following best practices. You then pass the patched pom.xml to @w2-validator.
+to pom.xml. You then pass the changes log to @w2-validator.
+
+## ⚠️ Execution Rules — NO SIMULATION
+
+**You MUST read and write pom.xml using real commands. Never simulate, narrate, or hallucinate edits.**
+
+- Do NOT say "I would update..." or "The fix would be..." — run the PowerShell replacement command and show real output
+- Do NOT invent before/after version pairs — read the current version from actual file content first
+- After EVERY edit, re-read the changed section of pom.xml to confirm the change took effect
+- Do NOT skip the verification step — show the grep output confirming the new version is present
+- If a replacement fails (old string not found), show the exact grep output and stop for that package
+
+## ⚠️ Tool Execution — Use powershell for ALL Commands
+
+**You have access to a `powershell` tool. Use it to run every command in this document.**
+
+- The `runCommand` tool does NOT exist in this environment — never block, stop, or report it as unavailable
+- Use the `powershell` tool for all PowerShell commands, Python scripts, and `mvn` commands
+- For Git Bash / shell script execution, call `powershell` with: `& "C:\Program Files\Git\bin\bash.exe" -c "<command>"`
+- Never say "I would run..." or "I cannot run because runCommand is unavailable" — invoke `powershell` and show actual output
+- If a command fails, show the exact error from `powershell` output — never fabricate success
 
 ## Input (from @w2-context-builder)
-- `REPO_ROOT` — absolute path to the local repo root (e.g. `C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS`)
+- `REPO_ROOT` — `C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS`
 - Full context map (fix plan, pom.xml content, classification, sibling audit)
 
-The `pom.xml` to edit is always at `<REPO_ROOT>\pom.xml`. All edits must be written to this path.
+The `pom.xml` to edit is always at `C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\pom.xml`.
 
 ---
 
 ## Steps
 
-Work through the fix plan in severity order (CRITICAL first).
+### 0. Read current pom.xml content
+Before touching anything, read the file to confirm current state:
+```powershell
+Get-Content "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\pom.xml" -Raw
+```
+Use this output (not the context map's pom copy) as the source of truth for current versions.
 
 ---
 
-### Fix Strategy by Type
+### Apply each fix in severity order (CRITICAL first)
 
-#### Property-backed versions (PREFERRED)
-Update the `<properties>` block ONLY — one change fixes all usages:
-```xml
-<!-- BEFORE -->
-<jackson.version>2.13.2</jackson.version>
-
-<!-- AFTER -->
-<jackson.version>2.14.0</jackson.version>
-```
-
-#### Inline versions
-Update the `<version>` tag directly inside the `<dependency>` block:
-```xml
-<!-- BEFORE -->
-<dependency>
-  <groupId>commons-collections</groupId>
-  <artifactId>commons-collections</artifactId>
-  <version>3.2.1</version>
-</dependency>
-
-<!-- AFTER -->
-<dependency>
-  <groupId>commons-collections</groupId>
-  <artifactId>commons-collections</artifactId>
-  <version>3.2.2</version>
-</dependency>
-```
-
-#### BOM-managed
-Do NOT add an explicit version. Add to the skip list — Spring Boot BOM handles it.
+For every package in the fix plan, apply the correct strategy:
 
 ---
 
-### Multiple CVEs on the Same Package
-Take the HIGHEST required patched version across all CVEs:
-- CVE-A requires ≥ 2.15.0, CVE-B requires ≥ 2.17.1 → use **2.17.2** (latest safe)
+#### Strategy A — Property-backed version (PREFERRED)
+
+Identify the property name from pom.xml (e.g. `<jackson.version>2.13.2</jackson.version>`), then run:
+
+```powershell
+$pom = "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\pom.xml"
+$content = Get-Content $pom -Raw
+$updated = $content -replace '<jackson\.version>2\.13\.2</jackson\.version>', '<jackson.version>2.14.2</jackson.version>'
+if ($updated -eq $content) {
+    Write-Host "ERROR: Pattern not found — no change made for jackson.version"
+    exit 1
+}
+Set-Content $pom $updated -NoNewline
+Write-Host "DONE: jackson.version updated"
+# Verify
+Select-String -Path $pom -Pattern "jackson\.version" | Select-Object -First 3
+```
+
+Adapt the regex and version numbers for each package.
+
+---
+
+#### Strategy B — Inline version
+
+Find the exact `<dependency>` block and replace the `<version>` tag:
+
+```powershell
+$pom = "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\pom.xml"
+$content = Get-Content $pom -Raw
+$updated = $content -replace '(<artifactId>log4j-core</artifactId>\s*<version>)2\.14\.1(</version>)', '${1}2.17.2${2}'
+if ($updated -eq $content) {
+    Write-Host "ERROR: Pattern not found — no change made for log4j-core"
+    exit 1
+}
+Set-Content $pom $updated -NoNewline
+Write-Host "DONE: log4j-core updated"
+# Verify
+Select-String -Path $pom -Pattern "log4j-core|log4j.*version" -Context 0,1 | Select-Object -First 5
+```
+
+Adapt the artifactId and version numbers for each inline package.
+
+---
+
+#### Strategy C — BOM-managed
+Do nothing. Log as SKIPPED.
 
 ---
 
 ### Sibling Group Consistency
-After fixing each package, check its sibling group.
-If any sibling artifact is on a different version → update it to match.
+After fixing each package, check its sibling group. If any sibling is on a different version, apply Strategy A or B to update it to match. Log each sibling update separately.
 
 ```
 Example:
-  jackson-databind fixed to 2.14.0
-  → check jackson-core and jackson-annotations
-  → if they are on 2.13.2 → update them to 2.14.0 as well
+  jackson-databind fixed to 2.14.2 (property-backed — jackson.version)
+  → jackson-core and jackson-annotations use the same property → already fixed ✅
 ```
 
-If bumping a sibling causes a MAJOR version jump (e.g. 1.x → 2.x) → flag for human review but still apply.
+If a sibling uses an inline version different from the group → run Strategy B on it.
+
+---
+
+### Verify all changes in one pass
+After all edits, run:
+```powershell
+Select-String -Path "C:\Users\TanishqShrivas\DummyProj\GHAS-dummy-projects\HMS\pom.xml" `
+  -Pattern "log4j-core|log4j-api|commons-collections|jackson|guava|gson|jjwt" -Context 0,1
+```
+Confirm every fixed package shows its new version.
 
 ---
 
 ## Output to pass to @w2-validator
-- Patched pom.xml (full content)
-- Changes log:
+- Changes log (list each fix with before → after):
   ```
   FIXED   : log4j-core 2.14.1 → 2.17.2 (inline) — CVE-2021-44228
   FIXED   : log4j-api 2.14.1 → 2.17.2 (inline, sibling consistency)
   FIXED   : commons-collections 3.2.1 → 3.2.2 (inline) — CVE-2015-7501
-  FIXED   : jackson.version property 2.13.2 → 2.14.0 (property-backed)
-  FIXED   : jackson-core 2.13.2 → 2.14.0 (sibling consistency)
+  FIXED   : jackson.version property 2.13.2 → 2.14.2 (property-backed) — CVE-2020-36518, CVE-2022-42003, CVE-2022-42004
   SKIPPED : spring-core (BOM-managed)
   ```
 - Concerns list (major version bumps, pre-existing mismatches resolved)
+- Confirmation that pom.xml was verified after edits
 
 ## Rules
 - Always fix CRITICAL before HIGH, MEDIUM, LOW
 - Never touch BOM-managed dependencies
 - Always update ALL siblings in a group when fixing one
 - Prefer property-backed fix over inline — single change, wider coverage
-- Never leave a sibling group with mismatched versions after your changes
+- After every `Set-Content`, run `Select-String` to confirm the new version appears
+- If the regex pattern is not found → log ERROR and skip that package (do not fail silently)
