@@ -15,7 +15,7 @@ fi
 
 if ! command -v jq >/dev/null 2>&1; then
   for _jq_dir in \
-    "/c/Users/TanishqShrivas/.local/bin" \
+    "/c/Users/VishakhaJatav/.local/bin" \
     "/c/ProgramData/chocolatey/bin" \
     "/usr/local/bin" \
     "/usr/bin"; do
@@ -31,7 +31,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 # Default path (Windows Git Bash format) — timestamped so each run produces a unique file
-DEFAULT_OUT_PATH="/c/Users/TanishqShrivas/DummyProj/GHAS-dummy-projects/HMS/github_alerts_$(date +%Y%m%d_%H%M%S).csv"
+DEFAULT_OUT_PATH="/c/Users/VishakhaJatav/IdeaProjects/HMS/github_alerts_$(date +%Y%m%d_%H%M%S).csv"
 
 if [ "$#" -gt 1 ]; then
   echo "Usage: $0 [output.csv]" >&2

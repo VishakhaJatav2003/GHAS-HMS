@@ -111,12 +111,23 @@ Throw domain-specific exceptions from services; do **not** return error response
 | `DoctorUnavailableException` | 422 |
 | `BusinessValidationException` | 400 |
 
+`ResourceNotFoundException` has two constructors — prefer the 3-arg form:
+```java
+throw new ResourceNotFoundException("Patient", "id", patientId);
+// produces: "Patient not found with id: '<value>'"
+```
+
 ### Transactions
 - All write service methods are `@Transactional`.
 - All read service methods are `@Transactional(readOnly = true)`.
 
 ### Security / Roles
 Roles: `ADMIN`, `DOCTOR`, `RECEPTIONIST`, `PATIENT`. Role-based URL rules are defined in `SecurityConfig`. Public endpoints: `/auth/**`, Swagger paths, `/actuator/**`. Roles are stored with the `ROLE_` prefix — use `hasRole('ADMIN')` (not `hasAuthority('ROLE_ADMIN')`) in `@PreAuthorize`.
+
+### Service Implementations
+All `*ServiceImpl` classes use `@Slf4j` + `@RequiredArgsConstructor` (Lombok). Dependencies are injected as `private final` fields — do not use `@Autowired`.
+
+`MedicalRecordService` deviates from the standard CRUD pattern — it exposes a single `createOrUpdateMedicalRecord()` upsert operation rather than separate create/update methods.
 
 ### Tests
 - Unit tests use `@ExtendWith(MockitoExtension.class)` with `@Mock` / `@InjectMocks` — no Spring context.
