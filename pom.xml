@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.3</version>
+        <version>3.4.7</version>
         <relativePath/>
     </parent>
 
@@ -24,6 +24,22 @@
         <jjwt.version>0.12.3</jjwt.version>
         <springdoc.version>2.3.0</springdoc.version>
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+
+        <!-- ── Transitive version overrides (Spring Boot BOM property names) ── -->
+        <!-- CVE-2026-44249 et al — io.netty:* — fixes all netty artifacts -->
+        <netty.version>4.1.135.Final</netty.version>
+        <!-- CVE-2022-42889 (Text4Shell) — org.apache.commons:commons-text -->
+        <commons-text.version>1.10.0</commons-text.version>
+        <!-- CVE-2024-57699 — net.minidev:json-smart -->
+        <json-smart.version>2.5.2</json-smart.version>
+        <!-- CVE-2025-48924 — org.apache.commons:commons-lang3 -->
+        <commons-lang3.version>3.18.0</commons-lang3.version>
+        <!-- CVE-2026-43515, CVE-2026-41293, CVE-2025-24813 et al - org.apache.tomcat.embed:* -->
+        <tomcat.version>10.1.55</tomcat.version>
+        <!-- CVE-2024-12801, CVE-2024-12798, CVE-2025-11226, CVE-2026-1225 - ch.qos.logback:* -->
+        <logback.version>1.5.25</logback.version>
+        <!-- CVE-2026-24400 - org.assertj:assertj-core (test scope) -->
+        <assertj.version>3.27.7</assertj.version>
     </properties>
 
     <dependencies>
@@ -107,75 +123,40 @@
 
         <!-- ⚠️ INTENTIONALLY VULNERABLE DEPENDENCIES — FOR DEPENDABOT WORKFLOW TESTING ONLY ⚠️ -->
 
-        <!-- CVE-2021-44228, CVE-2021-45046, CVE-2021-45105 (Log4Shell) -->
+        <!-- CVE-2021-44228, CVE-2021-45046, CVE-2021-45105 (Log4Shell) — fixed in 2.15.0 -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
-            <version>2.14.1</version>
+            <version>2.25.4</version>
         </dependency>
 
         <!-- CVE-2015-7501, CVE-2015-6420 (Remote code execution via deserialization) -->
         <dependency>
             <groupId>commons-collections</groupId>
             <artifactId>commons-collections</artifactId>
-            <version>3.2.1</version>
+            <version>3.2.2</version>
         </dependency>
 
-        <!-- CVE-2020-36518, CVE-2022-42003, CVE-2022-42004 (DoS via deep wrapper array nesting) -->
+        <!-- CVE-2020-36518, CVE-2022-42003, CVE-2022-42004 - now BOM-managed via spring-boot-starter-parent 3.4.7 -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.13.2</version>
         </dependency>
 
-        <!-- CVE-2020-8908, CVE-2023-2976 (Insecure temp directory + path traversal) -->
+        <!-- CVE-2020-8908, CVE-2023-2976 (Insecure temp directory + path traversal) — fixed in 32.0.0 -->
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>29.0-jre</version>
+            <version>32.0.0-android</version>
         </dependency>
 
-        <!-- CVE-2022-25647 (Deserialization of Untrusted Data) -->
+        <!-- CVE-2022-25647 (Deserialization of Untrusted Data) — fixed in 2.8.9 -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.8.5</version>
+            <version>2.8.9</version>
         </dependency>
 
-        <!-- CVE-2022-42889 (Text4Shell — RCE via StringSubstitutor interpolation) -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-text</artifactId>
-            <version>1.9</version>
-        </dependency>
-
-        <!-- CVE-2022-1471 (SnakeYAML — RCE via unsafe deserialization of arbitrary Java objects) -->
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-            <version>1.30</version>
-        </dependency>
-
-        <!-- CVE-2021-42392, CVE-2022-23221 (H2 Console — unauthenticated RCE via JNDI) -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <version>1.4.200</version>
-        </dependency>
-
-        <!-- CVE-2021-39139, CVE-2021-40690 (XStream — RCE via unsafe type processing) -->
-        <dependency>
-            <groupId>com.thoughtworks.xstream</groupId>
-            <artifactId>xstream</artifactId>
-            <version>1.4.17</version>
-        </dependency>
-
-        <!-- CVE-2021-43797 (Netty — HTTP request smuggling via whitespace mishandling) -->
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-all</artifactId>
-            <version>4.1.72.Final</version>
-        </dependency>
     </dependencies>
 
     <build>

@@ -30,8 +30,8 @@ if ! command -v jq >/dev/null 2>&1; then
   fi
 fi
 
-# Default path (Windows Git Bash format) — timestamped so each run produces a unique file
-DEFAULT_OUT_PATH="/c/Users/VishakhaJatav/IdeaProjects/HMS/github_alerts_$(date +%Y%m%d_%H%M%S).csv"
+# Default path — saves into csv_vulnerabilities/ folder inside the repo
+DEFAULT_OUT_PATH="/c/Users/VishakhaJatav/IdeaProjects/HMS/csv_vulnerabilities/github_alerts_$(date +%Y%m%d_%H%M%S).csv"
 
 if [ "$#" -gt 1 ]; then
   echo "Usage: $0 [output.csv]" >&2
@@ -41,10 +41,8 @@ fi
 out_path="${1:-$DEFAULT_OUT_PATH}"
 mkdir -p "$(dirname "$out_path")"
 
-# ---------------------------------------------------------------------------
-# Cleanup — remove CSV files from previous runs before writing a fresh one
-# ---------------------------------------------------------------------------
-_repo_dir="$(dirname "$out_path")"
+# Cleanup — remove CSV files from previous runs inside csv_vulnerabilities/
+_repo_dir="/c/Users/VishakhaJatav/IdeaProjects/HMS/csv_vulnerabilities"
 for _old_csv in "$_repo_dir"/github_alerts_*.csv; do
   [ -f "$_old_csv" ] && rm -f "$_old_csv" && echo "Removed old CSV: $_old_csv" >&2
 done
@@ -79,7 +77,7 @@ for entry in \
   # Dependabot
   # =======================
   echo "  [1/3] Fetching Dependabot alerts..." >&2
-  if gh api "repos/tanishq-sh17/${svc}/dependabot/alerts?state=open&per_page=100" --paginate \
+  if gh api "repos/VishakhaJatav2003/GHAS-HMS/dependabot/alerts?state=open&per_page=100" --paginate \
     --jq '.[] |
       .created_at as $created |
       (.security_advisory.severity // "") as $s |
@@ -120,7 +118,7 @@ for entry in \
   # Code Scanning
   # =======================
   echo "  [2/3] Fetching Code Scanning alerts..." >&2
-  if gh api "repos/tanishq-sh17/${svc}/code-scanning/alerts?state=open&per_page=100" --paginate \
+  if gh api "repos/VishakhaJatav2003/GHAS-HMS/code-scanning/alerts?state=open&per_page=100" --paginate \
     --jq '.[] |
       .created_at as $created |
       ((.rule.security_severity_level // .rule.severity // .severity //"") | ascii_downcase) as $s |
@@ -153,7 +151,7 @@ for entry in \
   # Secret Scanning
   # =======================
   echo "  [3/3] Fetching Secret Scanning alerts..." >&2
-  if gh api "repos/tanishq-sh17/${svc}/secret-scanning/alerts?state=open&per_page=100" --paginate \
+  if gh api "repos/VishakhaJatav2003/GHAS-HMS/secret-scanning/alerts?state=open&per_page=100" --paginate \
     --jq '.[] |
       .created_at as $created |
       ((.severity // .rule.severity //"") | ascii_downcase) as $s |

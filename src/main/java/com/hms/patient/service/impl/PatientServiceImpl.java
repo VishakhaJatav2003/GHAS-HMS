@@ -32,7 +32,7 @@ public class PatientServiceImpl implements PatientService {
     @Override
     @Transactional
     public PatientResponse createPatient(PatientRequest request) {
-        log.info("Creating new patient with phone: {}", request.getPhone());
+        log.info("Creating new patient with phone: [REDACTED]"); // Phone is PII - not logged per security policy
 
         if (request.getEmail() != null && patientRepository.existsByEmail(request.getEmail())) {
             throw new BusinessValidationException("Patient with email '" + request.getEmail() + "' already exists");
